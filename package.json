@@ -7,8 +7,12 @@
   "publisher": "bearylabs",
   "repository": {
     "type": "git",
-    "url": "https://github.com/bearylabs/doomcode.git"
+    "url": "https://github.com/bearylabs/doomcode-workspace.git"
   },
+  "bugs": {
+    "url": "https://github.com/bearylabs/doomcode/issues"
+  },
+  "homepage": "https://github.com/bearylabs/doomcode-workspace#readme",
   "engines": {
     "vscode": "^1.110.0"
   },
