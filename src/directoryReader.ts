@@ -13,18 +13,24 @@ export interface DirectoryEntry {
     permissions: string;
 }
 
-/** Formats a byte count into a human-readable string (B / K / M / G). */
+/** Formats a byte count into a human-readable string. Matches the format in panel/helpers.ts. */
 function formatFileSize(bytes: number): string {
     if (bytes < 1024) {
-        return `${bytes}B`;
+        return String(bytes);
     }
-    if (bytes < 1048576) {
-        return `${(bytes / 1024).toFixed(1)}K`;
+    if (bytes < 1024 * 1024) {
+        const k = bytes / 1024;
+        const s = k < 10 ? String(Math.round(k * 10) / 10) : String(Math.round(k));
+        return s + 'k';
     }
-    if (bytes < 1073741824) {
-        return `${(bytes / 1048576).toFixed(1)}M`;
+    if (bytes < 1024 * 1024 * 1024) {
+        const m = bytes / (1024 * 1024);
+        const s = m < 10 ? String(Math.round(m * 10) / 10) : String(Math.round(m));
+        return s + 'M';
     }
-    return `${(bytes / 1073741824).toFixed(1)}G`;
+    const g = bytes / (1024 * 1024 * 1024);
+    const s = g < 10 ? String(Math.round(g * 10) / 10) : String(Math.round(g));
+    return s + 'G';
 }
 
 /**
@@ -91,9 +97,7 @@ export async function readDirectory(uriString: string): Promise<DirectoryEntry[]
 
         if (vsStat.status === 'fulfilled') {
             mtime = vsStat.value.mtime > 0 ? vsStat.value.mtime : undefined;
-            if (!isDir) {
-                size = formatFileSize(vsStat.value.size);
-            }
+            size = formatFileSize(vsStat.value.size);
         }
         if (nodeStat.status === 'fulfilled') {
             permissions = formatPermissions(nodeStat.value.mode);
