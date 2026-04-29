@@ -1,6 +1,10 @@
 import { promises as fsp } from 'fs';
 import * as vscode from 'vscode';
 
+// doom-workspace runs as extensionKind ["workspace"] so this always executes
+// on the machine that owns the workspace (local, SSH host, or WSL). All
+// filesystem operations below happen on that machine directly.
+
 export interface DirectoryEntry {
     name: string;
     isDir: boolean;
@@ -9,6 +13,7 @@ export interface DirectoryEntry {
     permissions: string;
 }
 
+/** Formats a byte count into a human-readable string (B / K / M / G). */
 function formatFileSize(bytes: number): string {
     if (bytes < 1024) {
         return `${bytes}B`;
@@ -22,15 +27,20 @@ function formatFileSize(bytes: number): string {
     return `${(bytes / 1073741824).toFixed(1)}G`;
 }
 
+/**
+ * Converts a Unix `stat.mode` bitmask into an `ls`-style permission string
+ * (e.g. `-rwxr-xr-x`). The high bits identify the file type; the low 9 bits
+ * encode owner/group/other rwx permissions.
+ */
 function formatPermissions(mode: number): string {
     const typeMap: Record<number, string> = {
-        0o140000: 's',
-        0o120000: 'l',
-        0o100000: '-',
-        0o060000: 'b',
-        0o040000: 'd',
-        0o020000: 'c',
-        0o010000: 'p',
+        0o140000: 's',  // socket
+        0o120000: 'l',  // symlink
+        0o100000: '-',  // regular file
+        0o060000: 'b',  // block device
+        0o040000: 'd',  // directory
+        0o020000: 'c',  // char device
+        0o010000: 'p',  // named pipe
     };
     const fileType = typeMap[mode & 0o170000] ?? '?';
     const bits = (n: number): string =>
@@ -38,16 +48,32 @@ function formatPermissions(mode: number): string {
     return fileType + bits((mode >> 6) & 7) + bits((mode >> 3) & 7) + bits(mode & 7);
 }
 
+/**
+ * Lists the contents of a directory, returning entries with size, mtime, and
+ * Unix permission bits. Used by the `doom-workspace.readDirectory` command,
+ * which powers the `SPC .` directory browser in the doomcode extension.
+ *
+ * Two stat sources are used per entry and fired in parallel to avoid serial
+ * WSL/SSH round-trips:
+ *   - `vscode.workspace.fs.stat`  — cross-platform; provides size + mtime.
+ *   - `fsp.stat` (Node fs)        — local/SSH/WSL only; provides Unix mode bits
+ *                                   for permission display.
+ *
+ * Result is sorted: directories first (alphabetical), then files (newest first).
+ */
 export async function readDirectory(uriString: string): Promise<DirectoryEntry[]> {
     const uri = vscode.Uri.parse(uriString);
     const { scheme, authority } = uri;
+    // Detect remote context so we know whether Node fs can reach the fsPath.
     const isSsh = scheme === 'vscode-remote' && authority.startsWith('ssh-remote+');
     const isWsl = scheme === 'vscode-remote' && authority.startsWith('wsl+');
+    // Node fs is available on local, SSH remote, and WSL — but not on other
+    // virtual file systems (e.g. devcontainer volumes).
+    const canUseFsp = isSsh || isWsl || scheme === 'file';
 
     const rawEntries = await vscode.workspace.fs.readDirectory(uri);
-    const entries: DirectoryEntry[] = [];
 
-    for (const [name, fileType] of rawEntries) {
+    const entries = await Promise.all(rawEntries.map(async ([name, fileType]) => {
         const isDir = !!(fileType & vscode.FileType.Directory);
         const childUri = vscode.Uri.joinPath(uri, name);
 
@@ -55,29 +81,26 @@ export async function readDirectory(uriString: string): Promise<DirectoryEntry[]
         let mtime: number | undefined;
         let permissions = '';
 
-        try {
-            const vsStat = await vscode.workspace.fs.stat(childUri);
-            mtime = vsStat.mtime > 0 ? vsStat.mtime : undefined;
+        // Both stat calls are fired in parallel. On WSL/SSH with many entries
+        // this avoids N × 2 serial round-trips and instead pays ~1 round-trip
+        // of latency regardless of directory size.
+        const [vsStat, nodeStat] = await Promise.allSettled([
+            vscode.workspace.fs.stat(childUri),
+            canUseFsp ? fsp.stat(childUri.fsPath) : Promise.reject(),
+        ]);
+
+        if (vsStat.status === 'fulfilled') {
+            mtime = vsStat.value.mtime > 0 ? vsStat.value.mtime : undefined;
             if (!isDir) {
-                size = formatFileSize(vsStat.size);
-            }
-        } catch {
-            // ignore inaccessible entries
-        }
-
-        // On local and SSH/WSL workspace machines the fsPath is a real path
-        // we can stat via Node fs to obtain Unix permission bits.
-        if (isSsh || isWsl || scheme === 'file') {
-            try {
-                const nodeStat = await fsp.stat(childUri.fsPath);
-                permissions = formatPermissions(nodeStat.mode);
-            } catch {
-                // ignore permission errors
+                size = formatFileSize(vsStat.value.size);
             }
         }
+        if (nodeStat.status === 'fulfilled') {
+            permissions = formatPermissions(nodeStat.value.mode);
+        }
 
-        entries.push({ name, isDir, size, mtime, permissions });
-    }
+        return { name, isDir, size, mtime, permissions };
+    }));
 
     const dirs = entries
         .filter(e => e.isDir)
