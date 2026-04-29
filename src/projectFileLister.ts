@@ -1,31 +1,55 @@
 import { spawn } from 'child_process';
+import * as fs from 'fs';
+import * as path from 'path';
 import * as vscode from 'vscode';
 
 // doom-workspace runs as extensionKind ["workspace"] so this always executes
 // on the machine that owns the workspace (local, SSH host, or WSL). All git
 // and filesystem operations below happen on that machine directly.
 
-export async function listProjectFiles(rootUriString: string): Promise<string[]> {
+export interface ProjectFileEntry {
+    rel: string;
+    mtime: number | undefined;
+    size: number | undefined;
+    mode: number | undefined;
+}
+
+export async function listProjectFiles(rootUriString: string): Promise<ProjectFileEntry[]> {
     const rootUri = vscode.Uri.parse(rootUriString);
     const rootPath = rootUri.fsPath;
     const { scheme, authority } = rootUri;
     const isWsl = scheme === 'vscode-remote' && authority.startsWith('wsl+');
 
+    let relativePaths: string[];
+
     try {
         const files = await gitLsFiles(rootPath, isWsl);
-        if (files.length > 0) {
-            return files;
-        }
+        relativePaths = files.length > 0 ? files : await findFilesFallback(rootUri);
     } catch {
         // not a git repository or git is not available — fall through
+        relativePaths = await findFilesFallback(rootUri);
     }
 
-    // findFiles fallback: respects .gitignore via VS Code's built-in exclusions
+    const statResults = await Promise.allSettled(
+        relativePaths.map(rel => fs.promises.stat(path.join(rootPath, rel)))
+    );
+
+    return relativePaths.map((rel, i) => {
+        const s = statResults[i];
+        return {
+            rel,
+            mtime: s.status === 'fulfilled' ? s.value.mtimeMs : undefined,
+            size: s.status === 'fulfilled' ? s.value.size : undefined,
+            mode: s.status === 'fulfilled' ? s.value.mode : undefined,
+        };
+    });
+}
+
+async function findFilesFallback(rootUri: vscode.Uri): Promise<string[]> {
     const uris = await vscode.workspace.findFiles(
         new vscode.RelativePattern(rootUri, '**/*'),
         '{**/node_modules/**,**/.git/**,**/.hg/**,**/.svn/**}'
     );
-
     return uris.map(uri => vscode.workspace.asRelativePath(uri, false));
 }
 
