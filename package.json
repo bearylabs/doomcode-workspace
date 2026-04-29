@@ -1,0 +1,42 @@
+{
+  "name": "doom-workspace",
+  "displayName": "Doom Workspace",
+  "description": "Host-side filesystem companion for Doom Code.",
+  "version": "0.1.0",
+  "license": "MIT",
+  "publisher": "bearylabs",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/bearylabs/doomcode.git"
+  },
+  "engines": {
+    "vscode": "^1.110.0"
+  },
+  "categories": [
+    "Other"
+  ],
+  "extensionKind": [
+    "workspace"
+  ],
+  "activationEvents": [
+    "onStartupFinished"
+  ],
+  "main": "./out/extension.js",
+  "contributes": {
+    "commands": [
+      {
+        "command": "doom-workspace.readDirectory",
+        "title": "Doom Workspace: Read Directory"
+      },
+      {
+        "command": "doom-workspace.listProjectFiles",
+        "title": "Doom Workspace: List Project Files"
+      }
+    ]
+  },
+  "devDependencies": {
+    "@types/node": "22.x",
+    "@types/vscode": "^1.110.0",
+    "typescript": "^5.9.3"
+  }
+}
