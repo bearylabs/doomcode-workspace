@@ -17,13 +17,11 @@ export interface ProjectFileEntry {
 export async function listProjectFiles(rootUriString: string): Promise<ProjectFileEntry[]> {
     const rootUri = vscode.Uri.parse(rootUriString);
     const rootPath = rootUri.fsPath;
-    const { scheme, authority } = rootUri;
-    const isWsl = scheme === 'vscode-remote' && authority.startsWith('wsl+');
 
     let relativePaths: string[];
 
     try {
-        const files = await gitLsFiles(rootPath, isWsl);
+        const files = await gitLsFiles(rootPath);
         relativePaths = files.length > 0 ? files : await findFilesFallback(rootUri);
     } catch {
         // not a git repository or git is not available — fall through
@@ -53,7 +51,7 @@ async function findFilesFallback(rootUri: vscode.Uri): Promise<string[]> {
     return uris.map(uri => vscode.workspace.asRelativePath(uri, false));
 }
 
-function gitLsFiles(cwd: string, isWsl: boolean): Promise<string[]> {
+function gitLsFiles(cwd: string): Promise<string[]> {
     return new Promise((resolve, reject) => {
         const gitArgs = [
             'ls-files',
@@ -62,13 +60,10 @@ function gitLsFiles(cwd: string, isWsl: boolean): Promise<string[]> {
             '--exclude-standard',
         ];
 
-        // On a WSL workspace the extension runs inside WSL, so the git binary
-        // is the native Linux one and needs no special wrapper.
-        const [cmd, args] = isWsl
-            ? ['git', gitArgs]
-            : ['git', gitArgs];
-
-        const proc = spawn(cmd, args, { cwd });
+        // On all supported targets (local, SSH, WSL) the extension runs on the
+        // machine that owns the workspace, so the native git binary is always
+        // available at 'git' without any special wrapper.
+        const proc = spawn('git', gitArgs, { cwd });
         const chunks: Buffer[] = [];
 
         proc.stdout.on('data', (chunk: Buffer) => chunks.push(chunk));
