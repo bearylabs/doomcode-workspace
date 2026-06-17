@@ -35,6 +35,10 @@
       {
         "command": "doom-workspace.listProjectFiles",
         "title": "Doom Workspace: List Project Files"
+      },
+      {
+        "command": "doom-workspace.searchText",
+        "title": "Doom Workspace: Search Text"
       }
     ]
   },
