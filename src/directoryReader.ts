@@ -8,55 +8,16 @@ import * as vscode from 'vscode';
 export interface DirectoryEntry {
     name: string;
     isDir: boolean;
-    size: string;
+    size: number | undefined;
     mtime: number | undefined;
-    permissions: string;
-}
-
-/** Formats a byte count into a human-readable string. Matches the format in panel/helpers.ts. */
-function formatFileSize(bytes: number): string {
-    if (bytes < 1024) {
-        return String(bytes);
-    }
-    if (bytes < 1024 * 1024) {
-        const k = bytes / 1024;
-        const s = k < 10 ? String(Math.round(k * 10) / 10) : String(Math.round(k));
-        return s + 'k';
-    }
-    if (bytes < 1024 * 1024 * 1024) {
-        const m = bytes / (1024 * 1024);
-        const s = m < 10 ? String(Math.round(m * 10) / 10) : String(Math.round(m));
-        return s + 'M';
-    }
-    const g = bytes / (1024 * 1024 * 1024);
-    const s = g < 10 ? String(Math.round(g * 10) / 10) : String(Math.round(g));
-    return s + 'G';
+    mode: number | undefined;
 }
 
 /**
- * Converts a Unix `stat.mode` bitmask into an `ls`-style permission string
- * (e.g. `-rwxr-xr-x`). The high bits identify the file type; the low 9 bits
- * encode owner/group/other rwx permissions.
- */
-function formatPermissions(mode: number): string {
-    const typeMap: Record<number, string> = {
-        0o140000: 's',  // socket
-        0o120000: 'l',  // symlink
-        0o100000: '-',  // regular file
-        0o060000: 'b',  // block device
-        0o040000: 'd',  // directory
-        0o020000: 'c',  // char device
-        0o010000: 'p',  // named pipe
-    };
-    const fileType = typeMap[mode & 0o170000] ?? '?';
-    const bits = (n: number): string =>
-        (n & 4 ? 'r' : '-') + (n & 2 ? 'w' : '-') + (n & 1 ? 'x' : '-');
-    return fileType + bits((mode >> 6) & 7) + bits((mode >> 3) & 7) + bits(mode & 7);
-}
-
-/**
- * Lists the contents of a directory, returning entries with size, mtime, and
- * Unix permission bits. Used by the `doom-workspace.readDirectory` command,
+ * Lists the contents of a directory, returning entries with raw size, mtime,
+ * and Unix mode bits. Formatting for display is left to the caller so the UI
+ * extension stays the single source of truth. Used by the
+ * `doom-workspace.readDirectory` command,
  * which powers the `SPC .` directory browser in the doomcode extension.
  *
  * Two stat sources are used per entry and fired in parallel to avoid serial
@@ -83,9 +44,9 @@ export async function readDirectory(uriString: string): Promise<DirectoryEntry[]
         const isDir = !!(fileType & vscode.FileType.Directory);
         const childUri = vscode.Uri.joinPath(uri, name);
 
-        let size = '';
+        let size: number | undefined;
         let mtime: number | undefined;
-        let permissions = '';
+        let mode: number | undefined;
 
         // Both stat calls are fired in parallel. On WSL/SSH with many entries
         // this avoids N × 2 serial round-trips and instead pays ~1 round-trip
@@ -97,13 +58,13 @@ export async function readDirectory(uriString: string): Promise<DirectoryEntry[]
 
         if (vsStat.status === 'fulfilled') {
             mtime = vsStat.value.mtime > 0 ? vsStat.value.mtime : undefined;
-            size = formatFileSize(vsStat.value.size);
+            size = vsStat.value.size;
         }
         if (nodeStat.status === 'fulfilled') {
-            permissions = formatPermissions(nodeStat.value.mode);
+            mode = nodeStat.value.mode;
         }
 
-        return { name, isDir, size, mtime, permissions };
+        return { name, isDir, size, mtime, mode };
     }));
 
     const dirs = entries
