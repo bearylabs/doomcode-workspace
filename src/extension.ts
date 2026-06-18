@@ -1,6 +1,7 @@
 import * as vscode from 'vscode';
 import { readDirectory } from './directoryReader';
 import { listProjectFiles } from './projectFileLister';
+import { searchText } from './textSearcher';
 
 export function activate(context: vscode.ExtensionContext): void {
     context.subscriptions.push(
@@ -11,7 +12,12 @@ export function activate(context: vscode.ExtensionContext): void {
         vscode.commands.registerCommand(
             'doom-workspace.listProjectFiles',
             (rootUriString: string) => listProjectFiles(rootUriString)
-        )
+        ),
+        vscode.commands.registerCommand(
+            'doom-workspace.searchText',
+            (rootUriString: string, query: string, maxResults: number) =>
+                searchText(rootUriString, query, maxResults)
+        ),
     );
 }
 
